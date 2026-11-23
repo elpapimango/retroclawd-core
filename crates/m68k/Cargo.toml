@@ -1,0 +1,17 @@
+[package]
+name = "rc-m68k"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/elpapimango/retroclawd-core"
+readme = "../../README.md"
+description = "Motorola 68000, 68010, 68020 and 68030 CPU core (instruction-exact integer unit with a coprocessor interface)"
+
+[lib]
+name = "m68k"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+mc68000 = { package = "rc-mc68000", path = "../mc68000", version = "0.1" }
