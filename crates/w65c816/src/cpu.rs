@@ -515,12 +515,12 @@ impl Cpu {
         let a = self.a as u32 & mask;
         let m = m as u32 & mask;
         let c = (self.p & FLAG_C) as u32;
-        let result;
-        if self.p & FLAG_D == 0 {
+        
+        let result = if self.p & FLAG_D == 0 {
             let sum = a + m + c;
             self.set_flag(FLAG_V, !(a ^ m) & (a ^ sum) & sign != 0);
             self.set_flag(FLAG_C, sum > mask);
-            result = sum & mask;
+            sum & mask
         } else {
             let mut carry = c;
             let mut out = 0u32;
@@ -540,8 +540,8 @@ impl Cpu {
             }
             self.set_flag(FLAG_V, !(a ^ m) & (a ^ partial_for_v) & sign != 0);
             self.set_flag(FLAG_C, carry != 0);
-            result = out & mask;
-        }
+            out & mask
+        };
         self.store_a(result as u16, wide);
         self.nz(result as u16, wide);
     }
@@ -555,13 +555,13 @@ impl Cpu {
         let a = self.a as u32 & mask;
         let m = m as u32 & mask;
         let c = (self.p & FLAG_C) as u32;
-        let result;
+        
         // overflow and (binary) carry come from the binary subtraction
         let bin = a.wrapping_sub(m).wrapping_sub(1 - c);
         self.set_flag(FLAG_V, (a ^ m) & (a ^ bin) & sign != 0);
-        if self.p & FLAG_D == 0 {
+        let result = if self.p & FLAG_D == 0 {
             self.set_flag(FLAG_C, a >= m + (1 - c));
-            result = bin & mask;
+            bin & mask
         } else {
             let mut borrow = 1 - c;
             let mut out = 0u32;
@@ -578,8 +578,8 @@ impl Cpu {
                 out |= ((r as u32) & 0xF) << (4 * i);
             }
             self.set_flag(FLAG_C, borrow == 0);
-            result = out & mask;
-        }
+            out & mask
+        };
         self.store_a(result as u16, wide);
         self.nz(result as u16, wide);
     }
@@ -773,8 +773,8 @@ impl Cpu {
 
     fn execute<B: Bus>(&mut self, bus: &mut B, op: u8) {
         // the accumulator group: ORA AND EOR ADC STA LDA CMP SBC in fifteen addressing modes
-        if let Some(mode) = Self::alu_mode(op) {
-            if op != 0x89 {
+        if let Some(mode) = Self::alu_mode(op)
+            && op != 0x89 {
                 let kind = op >> 5;
                 let wide = self.m16();
                 if kind == 4 {
@@ -787,7 +787,6 @@ impl Cpu {
                 }
                 return;
             }
-        }
         match op {
             // ---- shifts, rotates, INC, DEC on memory and the accumulator ----
             0x06 | 0x0E | 0x16 | 0x1E | 0x26 | 0x2E | 0x36 | 0x3E | 0x46 | 0x4E | 0x56 | 0x5E
