@@ -1,0 +1,11 @@
+[package]
+name = "rc-gsu"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/elpapimango/retroclawd-core"
+readme = "../../README.md"
+description = "Super FX (GSU-1/GSU-2) graphics support unit core for the Super Nintendo"
+
+[lib]
+name = "gsu"
