@@ -299,14 +299,13 @@ impl Ines {
     }
 
     pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        if let Some(t) = &self.trainer {
-            if t.len() != TRAINER_LEN {
+        if let Some(t) = &self.trainer
+            && t.len() != TRAINER_LEN {
                 return Err(Error::Unwritable(format!(
                     "a trainer is {TRAINER_LEN} bytes, not {}",
                     t.len()
                 )));
             }
-        }
         let mut h = [0u8; HEADER_LEN];
         h[..4].copy_from_slice(&MAGIC);
         let mut f6 = (self.mapper as u8 & 0x0F) << 4;
@@ -359,12 +358,12 @@ impl Ines {
                     self.mapper
                 )));
             }
-            if self.prg_rom.len() % (16 << 10) != 0 || self.prg_rom.len() / (16 << 10) > 255 {
+            if !self.prg_rom.len().is_multiple_of(16 << 10) || self.prg_rom.len() / (16 << 10) > 255 {
                 return Err(Error::Unwritable(
                     "iNES 1 PRG ROM is a multiple of 16 KB, at most 255 of them".to_string(),
                 ));
             }
-            if self.chr_rom.len() % (8 << 10) != 0 || self.chr_rom.len() / (8 << 10) > 255 {
+            if !self.chr_rom.len().is_multiple_of(8 << 10) || self.chr_rom.len() / (8 << 10) > 255 {
                 return Err(Error::Unwritable(
                     "iNES 1 CHR ROM is a multiple of 8 KB, at most 255 of them".to_string(),
                 ));
