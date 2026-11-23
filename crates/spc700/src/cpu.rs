@@ -650,11 +650,11 @@ impl Cpu {
                 self.set(FLAG_H, (self.y & 0xF) >= (self.x & 0xF));
                 self.set(FLAG_V, self.y >= self.x);
                 let (q, r) = if (self.y as u32) < (x << 1) {
-                    if x == 0 {
-                        (0xFFFFu32, ya)
-                    } else {
-                        (ya / x, ya % x)
-                    }
+                    // y < 2x, so x is not 0
+                    (
+                        ya.checked_div(x).unwrap_or(0xFFFF),
+                        ya.checked_rem(x).unwrap_or(ya),
+                    )
                 } else {
                     let d = ya.wrapping_sub(x << 9);
                     (255u32.wrapping_sub(d / (256 - x)), x + d % (256 - x))
