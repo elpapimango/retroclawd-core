@@ -137,9 +137,7 @@ fn set_long(b: &mut [u8], i: usize, v: u32) {
 }
 
 fn upper(c: u8, intl: bool) -> u8 {
-    if c.is_ascii_lowercase() {
-        c - 32
-    } else if intl && (0xE0..=0xFE).contains(&c) && c != 0xF7 {
+    if c.is_ascii_lowercase() || (intl && (0xE0..=0xFE).contains(&c) && c != 0xF7) {
         c - 32
     } else {
         c
