@@ -1,13 +1,18 @@
 [package]
-name = "chd"
+name = "rc-chd"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
+repository = "https://github.com/elpapimango/retroclawd-core"
+readme = "../../README.md"
 description = "CHD v5 compressed hunks of data: reads CD images (cdzl, cdlz and cdfl hunks) from untrusted files"
 
 [features]
 # the test-file builder, for crates that test their own use of a CHD
 builder = []
+
+[lib]
+name = "chd"
 
 [dependencies]
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }

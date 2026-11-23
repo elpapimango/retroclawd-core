@@ -1,12 +1,17 @@
 [package]
-name = "d64"
+name = "rc-d64"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
+repository = "https://github.com/elpapimango/retroclawd-core"
+readme = "../../README.md"
+
+[lib]
+name = "d64"
 
 [dependencies]
-cbm-dos = { path = "../cbm-dos" }
+cbm-dos = { package = "rc-cbm-dos", path = "../cbm-dos", version = "0.1.0" }
 
 [dev-dependencies]
-d71 = { path = "../d71" }
-d81 = { path = "../d81" }
+d71 = { package = "rc-d71", path = "../d71", version = "0.1.0" }
+d81 = { package = "rc-d81", path = "../d81", version = "0.1.0" }

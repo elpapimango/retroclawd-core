@@ -1,6 +1,11 @@
 [package]
-name = "atari-media"
+name = "rc-atari-media"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
+repository = "https://github.com/elpapimango/retroclawd-core"
+readme = "../../README.md"
 description = "Pure Atari XEX, ATR/XFD, CAR/raw cartridge and standard CAS media"
+
+[lib]
+name = "atari_media"

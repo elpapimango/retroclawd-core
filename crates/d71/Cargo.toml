@@ -1,8 +1,13 @@
 [package]
-name = "d71"
+name = "rc-d71"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
+repository = "https://github.com/elpapimango/retroclawd-core"
+readme = "../../README.md"
+
+[lib]
+name = "d71"
 
 [dependencies]
-cbm-dos = { path = "../cbm-dos" }
+cbm-dos = { package = "rc-cbm-dos", path = "../cbm-dos", version = "0.1.0" }
