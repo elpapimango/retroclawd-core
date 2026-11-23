@@ -142,7 +142,11 @@ fn encode_size(bytes: usize, unit: usize, what: &str) -> Result<(u8, u8), Error>
 }
 
 fn ram_size(shift: u8) -> u32 {
-    if shift == 0 { 0 } else { 64u32 << shift.min(25) }
+    if shift == 0 {
+        0
+    } else {
+        64u32 << shift.min(25)
+    }
 }
 
 fn ram_shift(bytes: u32, what: &str) -> Result<u8, Error> {
@@ -243,7 +247,11 @@ impl Ines {
         at += prg_len;
         let chr_rom = data[at..at + chr_len].to_vec();
         at += chr_len;
-        let misc_roms = if nes2 { data[at..].to_vec() } else { Vec::new() };
+        let misc_roms = if nes2 {
+            data[at..].to_vec()
+        } else {
+            Vec::new()
+        };
         Ok(Ines {
             nes2,
             mapper,
@@ -328,8 +336,10 @@ impl Ines {
             h[5] = c_lsb;
             h[8] = (self.mapper >> 8) as u8 & 0x0F | self.submapper << 4;
             h[9] = p_msb | c_msb << 4;
-            h[10] = ram_shift(self.prg_ram, "PRG RAM")? | ram_shift(self.prg_nvram, "PRG NVRAM")? << 4;
-            h[11] = ram_shift(self.chr_ram, "CHR RAM")? | ram_shift(self.chr_nvram, "CHR NVRAM")? << 4;
+            h[10] =
+                ram_shift(self.prg_ram, "PRG RAM")? | ram_shift(self.prg_nvram, "PRG NVRAM")? << 4;
+            h[11] =
+                ram_shift(self.chr_ram, "CHR RAM")? | ram_shift(self.chr_nvram, "CHR NVRAM")? << 4;
             h[12] = match self.timing {
                 Timing::Ntsc => 0,
                 Timing::Pal => 1,
@@ -361,7 +371,11 @@ impl Ines {
             }
             h[4] = (self.prg_rom.len() / (16 << 10)) as u8;
             h[5] = (self.chr_rom.len() / (8 << 10)) as u8;
-            let ram = if self.battery { self.prg_nvram } else { self.prg_ram };
+            let ram = if self.battery {
+                self.prg_nvram
+            } else {
+                self.prg_ram
+            };
             h[8] = (ram / (8 << 10)).min(255) as u8;
             if self.timing == Timing::Pal {
                 h[9] = 1;

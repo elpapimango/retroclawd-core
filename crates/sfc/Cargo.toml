@@ -1,0 +1,13 @@
+[package]
+name = "rc-sfc"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Super Nintendo / Super Famicom cartridge image (.sfc/.smc) parser and builder: mapping detection, internal header, checksum"
+repository = "https://github.com/elpapimango/retroclawd-core"
+readme = "../../README.md"
+
+[lib]
+name = "sfc"
+
+[dependencies]

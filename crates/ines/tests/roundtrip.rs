@@ -67,7 +67,10 @@ fn nes2_exponent_sizes() {
 fn console_types() {
     let mut c = Ines::new(99, rom(16 << 10, 1), rom(8 << 10, 1));
     c.console = Console::VsSystem;
-    assert_eq!(Ines::parse(&c.to_bytes().unwrap()).unwrap().console, Console::VsSystem);
+    assert_eq!(
+        Ines::parse(&c.to_bytes().unwrap()).unwrap().console,
+        Console::VsSystem
+    );
     c.nes2 = true;
     c.console = Console::Extended(9);
     let back = Ines::parse(&c.to_bytes().unwrap()).unwrap();
@@ -78,12 +81,22 @@ fn console_types() {
 fn errors_say_what_is_wrong() {
     assert_eq!(Ines::parse(b"NES"), Err(Error::TooShort));
     assert_eq!(Ines::parse(&[0u8; 16]), Err(Error::BadMagic));
-    let mut c = Ines::new(0, rom(16 << 10, 1), rom(8 << 10, 1)).to_bytes().unwrap();
+    let mut c = Ines::new(0, rom(16 << 10, 1), rom(8 << 10, 1))
+        .to_bytes()
+        .unwrap();
     c.truncate(c.len() - 1);
     assert!(matches!(Ines::parse(&c), Err(Error::Truncated { .. })));
     // iNES 1 cannot hold mapper 256 or a 20 KB PRG
-    assert!(Ines::new(256, rom(16 << 10, 0), rom(0, 0)).to_bytes().is_err());
-    assert!(Ines::new(0, rom(20 << 10, 0), rom(0, 0)).to_bytes().is_err());
+    assert!(
+        Ines::new(256, rom(16 << 10, 0), rom(0, 0))
+            .to_bytes()
+            .is_err()
+    );
+    assert!(
+        Ines::new(0, rom(20 << 10, 0), rom(0, 0))
+            .to_bytes()
+            .is_err()
+    );
     let mut bad = Ines::new(0, rom(16 << 10, 0), rom(0, 0));
     bad.nes2 = true;
     bad.prg_ram = 100;
