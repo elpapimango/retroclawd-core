@@ -238,3 +238,89 @@ pub(crate) fn any(mode: u8, reg: u8) -> bool {
 pub(crate) fn control(mode: u8, reg: u8) -> bool {
     matches!(mode, 2 | 5 | 6) || (mode == 7 && reg <= 3)
 }
+
+/// An operand as a coprocessor sees it (`Cpu::cp_ea`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CpOperand {
+    Dn(u8),
+    An(u8),
+    /// A memory operand: its address (for an immediate operand, the address of the data in the instruction stream).
+    Mem(u32),
+}
+
+impl Cpu {
+    /// Decodes the effective address of a coprocessor instruction whose operand is `bytes` long: the extension words
+    /// are consumed, `(An)+` and `-(An)` move the register by `bytes`, an immediate operand is consumed from the
+    /// instruction stream.
+    pub fn cp_ea<B: Bus>(
+        &mut self,
+        bus: &mut B,
+        mode: u8,
+        reg: u8,
+        bytes: u32,
+    ) -> Result<CpOperand, crate::cpu::CpuFault> {
+        let f = |_: Exc| crate::cpu::CpuFault;
+        let r = reg as usize;
+        Ok(match mode {
+            0 => CpOperand::Dn(reg),
+            1 => CpOperand::An(reg),
+            3 => {
+                let a = self.a[r];
+                self.a[r] = a.wrapping_add(bytes);
+                CpOperand::Mem(a)
+            }
+            4 => {
+                self.a[r] = self.a[r].wrapping_sub(bytes);
+                CpOperand::Mem(self.a[r])
+            }
+            7 if reg == 4 => {
+                let pc = self.pc;
+                match bytes {
+                    1 => {
+                        self.pc = pc.wrapping_add(2);
+                        CpOperand::Mem(pc.wrapping_add(1))
+                    }
+                    2 => {
+                        self.pc = pc.wrapping_add(2);
+                        CpOperand::Mem(pc)
+                    }
+                    n => {
+                        self.pc = pc.wrapping_add(n);
+                        CpOperand::Mem(pc)
+                    }
+                }
+            }
+            _ => match self.decode_ea(bus, mode, reg, Size::L).map_err(f)? {
+                Ea::Mem(a) => CpOperand::Mem(a),
+                _ => return Err(crate::cpu::CpuFault),
+            },
+        })
+    }
+
+    /// Reads memory as the current privilege level's data space.
+    pub fn cp_read<B: Bus>(
+        &mut self,
+        bus: &mut B,
+        addr: u32,
+        size: Size,
+    ) -> Result<u32, crate::cpu::CpuFault> {
+        self.rd(bus, addr, size).map_err(|_| crate::cpu::CpuFault)
+    }
+
+    /// Writes memory in the current privilege level's data space.
+    pub fn cp_write<B: Bus>(
+        &mut self,
+        bus: &mut B,
+        addr: u32,
+        size: Size,
+        value: u32,
+    ) -> Result<(), crate::cpu::CpuFault> {
+        self.wr(bus, addr, size, value)
+            .map_err(|_| crate::cpu::CpuFault)
+    }
+
+    /// Fetches a long word from the instruction stream.
+    pub fn fetch32<B: Bus>(&mut self, bus: &mut B) -> Result<u32, crate::cpu::CpuFault> {
+        self.fetch_long(bus).map_err(|_| crate::cpu::CpuFault)
+    }
+}
