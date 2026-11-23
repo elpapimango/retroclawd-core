@@ -1,0 +1,17 @@
+[package]
+name = "rc-w65c816"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/elpapimango/retroclawd-core"
+readme = "../../README.md"
+description = "WDC 65C816 CPU core (16-bit 65xx with 24-bit addressing), the SNES processor, with a disassembler"
+
+[lib]
+name = "w65c816"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"
