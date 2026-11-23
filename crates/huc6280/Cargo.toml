@@ -1,0 +1,9 @@
+[package]
+name = "huc6280"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Hudson HuC6280 CPU core (65C02 superset with a 21-bit bank mapper), the PC Engine's processor"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
