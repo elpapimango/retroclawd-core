@@ -515,7 +515,7 @@ impl Cpu {
         let a = self.a as u32 & mask;
         let m = m as u32 & mask;
         let c = (self.p & FLAG_C) as u32;
-        
+
         let result = if self.p & FLAG_D == 0 {
             let sum = a + m + c;
             self.set_flag(FLAG_V, !(a ^ m) & (a ^ sum) & sign != 0);
@@ -555,7 +555,7 @@ impl Cpu {
         let a = self.a as u32 & mask;
         let m = m as u32 & mask;
         let c = (self.p & FLAG_C) as u32;
-        
+
         // overflow and (binary) carry come from the binary subtraction
         let bin = a.wrapping_sub(m).wrapping_sub(1 - c);
         self.set_flag(FLAG_V, (a ^ m) & (a ^ bin) & sign != 0);
@@ -774,19 +774,20 @@ impl Cpu {
     fn execute<B: Bus>(&mut self, bus: &mut B, op: u8) {
         // the accumulator group: ORA AND EOR ADC STA LDA CMP SBC in fifteen addressing modes
         if let Some(mode) = Self::alu_mode(op)
-            && op != 0x89 {
-                let kind = op >> 5;
-                let wide = self.m16();
-                if kind == 4 {
-                    let ea = self.ea(bus, mode, true);
-                    let a = self.a;
-                    self.write_data(bus, ea, a, wide);
-                } else {
-                    let m = self.operand(bus, mode, wide);
-                    self.alu(kind, m, wide);
-                }
-                return;
+            && op != 0x89
+        {
+            let kind = op >> 5;
+            let wide = self.m16();
+            if kind == 4 {
+                let ea = self.ea(bus, mode, true);
+                let a = self.a;
+                self.write_data(bus, ea, a, wide);
+            } else {
+                let m = self.operand(bus, mode, wide);
+                self.alu(kind, m, wide);
             }
+            return;
+        }
         match op {
             // ---- shifts, rotates, INC, DEC on memory and the accumulator ----
             0x06 | 0x0E | 0x16 | 0x1E | 0x26 | 0x2E | 0x36 | 0x3E | 0x46 | 0x4E | 0x56 | 0x5E
