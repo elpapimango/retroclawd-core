@@ -1,9 +1,14 @@
 [package]
-name = "huc6280"
+name = "rc-huc6280"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
+repository = "https://github.com/elpapimango/retroclawd-core"
+readme = "../../README.md"
 description = "Hudson HuC6280 CPU core (65C02 superset with a 21-bit bank mapper), the PC Engine's processor"
+
+[lib]
+name = "huc6280"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
