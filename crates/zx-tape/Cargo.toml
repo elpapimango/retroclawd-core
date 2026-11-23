@@ -3,6 +3,7 @@ name = "rc-zx-tape"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
+description = "ZX Spectrum / ZX81 tape: TAP, TZX-flattened pulses, .p and WAV rendering"
 repository = "https://github.com/elpapimango/retroclawd-core"
 readme = "../../README.md"
 

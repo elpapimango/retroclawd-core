@@ -3,6 +3,7 @@ name = "rc-machine"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
+description = "Bus, memory and register traits shared by the retroclawd CPU cores"
 repository = "https://github.com/elpapimango/retroclawd-core"
 readme = "../../README.md"
 

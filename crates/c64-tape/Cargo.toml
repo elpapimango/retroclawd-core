@@ -3,6 +3,7 @@ name = "rc-c64-tape"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
+description = "Commodore 64 TAP tape image parser and writer, with the TED TAP v2 variant"
 repository = "https://github.com/elpapimango/retroclawd-core"
 readme = "../../README.md"
 

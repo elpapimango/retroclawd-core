@@ -3,6 +3,7 @@ name = "rc-szx-snapshot"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
+description = "ZX Spectrum .szx (Spectaculator) snapshot reader and writer"
 repository = "https://github.com/elpapimango/retroclawd-core"
 readme = "../../README.md"
 

@@ -3,6 +3,7 @@ name = "rc-z80"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
+description = "Zilog Z80 CPU core with documented and undocumented behaviour (retroclawd)"
 repository = "https://github.com/elpapimango/retroclawd-core"
 readme = "../../README.md"
 

@@ -6,6 +6,7 @@ name = "rc-mos6502"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
+description = "NMOS MOS 6502 CPU core (retroclawd)"
 repository = "https://github.com/elpapimango/retroclawd-core"
 readme = "../../README.md"
 

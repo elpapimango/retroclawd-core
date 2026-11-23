@@ -3,6 +3,7 @@ name = "rc-cbm-dos"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
+description = "Commodore DOS file-system rules shared by the D64, D71 and D81 disk images"
 repository = "https://github.com/elpapimango/retroclawd-core"
 readme = "../../README.md"
 

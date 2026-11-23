@@ -3,6 +3,7 @@ name = "rc-c64-cartridge"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
+description = "Commodore 64 cartridge image (CRT) parser and builder"
 repository = "https://github.com/elpapimango/retroclawd-core"
 readme = "../../README.md"
 
