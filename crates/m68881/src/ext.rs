@@ -112,6 +112,7 @@ impl Ext {
     pub fn is_snan(&self) -> bool {
         self.is_nan() && self.man & (1 << 62) == 0
     }
+    #[allow(clippy::should_implement_trait)]
     pub fn neg(self) -> Ext {
         Ext {
             sign: !self.sign,
@@ -759,6 +760,7 @@ impl Ext {
         let (x, y) = (self.fin(), o.fin());
         let (mut q, mut r): (u128, u128);
         let ymant = y.m as u128;
+        #[allow(clippy::needless_late_init)]
         let result_e;
         if x.e >= y.e {
             let steps = (x.e - y.e) as u32;

@@ -100,17 +100,8 @@ fn constants_and_double_store() {
 #[test]
 fn double_load_sqrt_and_store() {
     // FMOVE.D (A0),FP2 ; FSQRT FP2,FP3 ; FMOVE.D FP3,(A1)
-    let (mut cpu, mut sys) = machine(&[
-        0xF210,
-        0x5500,
-        0xF200,
-        0x0AE4 & !0x0200 | 0x0180 | 0x0040 & 0,
-        0xF211,
-        0x7580,
-    ]);
-    // FSQRT FP2,FP3: ext = src 2 << 10 | dst 3 << 7 | 4
-    sys.ram[0x1006] = 0x09;
-    sys.ram[0x1007] = 0x84;
+    let (mut cpu, mut sys) = machine(&[0xF210, 0x5500, 0xF200, 0x0984, 0xF211, 0x7580]);
+    // FSQRT FP2,FP3: ext = src 2 << 10 | dst 3 << 7 | 4 = 0x0984
     cpu.a[0] = 0x4000;
     cpu.a[1] = 0x4100;
     sys.ram[0x4000..0x4008].copy_from_slice(&2f64.to_bits().to_be_bytes());
