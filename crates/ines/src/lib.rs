@@ -228,6 +228,10 @@ impl Ines {
             if data[9] & 1 != 0 {
                 timing = Timing::Pal;
             }
+            if chr_len == 0 {
+                // no CHR ROM means 8 KB of CHR RAM
+                chr_ram = 8 << 10;
+            }
         }
         let trainer_len = if f6 & 4 != 0 { TRAINER_LEN } else { 0 };
         let mut at = HEADER_LEN;
