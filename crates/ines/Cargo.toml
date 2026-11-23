@@ -1,0 +1,13 @@
+[package]
+name = "rc-ines"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "NES cartridge image (iNES and NES 2.0 .nes) parser and builder"
+repository = "https://github.com/elpapimango/retroclawd-core"
+readme = "../../README.md"
+
+[lib]
+name = "ines"
+
+[dependencies]
