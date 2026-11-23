@@ -1,0 +1,13 @@
+[package]
+name = "rc-amiga"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Amiga executable (hunk) files and ADF disk images (OFS and FFS): parse, build, list, extract"
+repository = "https://github.com/elpapimango/retroclawd-core"
+readme = "../../README.md"
+
+[lib]
+name = "amiga"
+
+[dependencies]
