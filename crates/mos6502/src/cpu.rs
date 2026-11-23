@@ -48,6 +48,15 @@ pub struct Cpu {
     // persist this separately in their versioned envelope; see irq_poll_mask().
     #[serde(skip)]
     irq_poll_mask: Option<bool>,
+
+    /// Whether the `D` flag switches `ADC`/`SBC` to BCD. True for the NMOS 6502; the Ricoh 2A03/2A07 (NES, Famicom)
+    /// has no decimal mode: the flag is stored and pushed but arithmetic stays binary.
+    #[serde(default = "decimal_default")]
+    pub decimal: bool,
+}
+
+fn decimal_default() -> bool {
+    true
 }
 
 impl Default for Cpu {
@@ -63,6 +72,7 @@ impl Default for Cpu {
             irq_pending: false,
             nmi_pending: false,
             irq_poll_mask: None,
+            decimal: true,
         }
     }
 }
@@ -70,6 +80,14 @@ impl Default for Cpu {
 impl Cpu {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The Ricoh 2A03 (NES/Famicom, NTSC) or 2A07 (PAL): a 6502 whose `D` flag does nothing to arithmetic.
+    pub fn ricoh_2a03() -> Self {
+        Self {
+            decimal: false,
+            ..Self::default()
+        }
     }
 
     /// Ordered register name/value pairs, matching `z80::Cpu::registers`'s

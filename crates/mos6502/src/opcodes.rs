@@ -170,7 +170,7 @@ impl Cpu {
     }
 
     fn op_adc(&mut self, v: u8) {
-        if self.p & FLAG_D != 0 {
+        if self.decimal && self.p & FLAG_D != 0 {
             self.adc_decimal(v);
         } else {
             let carry_in = (self.p & FLAG_C != 0) as u16;
@@ -188,7 +188,7 @@ impl Cpu {
     }
 
     fn op_sbc(&mut self, v: u8) {
-        if self.p & FLAG_D != 0 {
+        if self.decimal && self.p & FLAG_D != 0 {
             self.sbc_decimal(v);
         } else {
             // SBC(v) == ADC(!v) in binary two's-complement arithmetic.

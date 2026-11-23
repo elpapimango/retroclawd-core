@@ -16,3 +16,6 @@ name = "mos6502"
 [dependencies]
 machine = { package = "rc-machine", path = "../machine", version = "0.1.0" }
 serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"
