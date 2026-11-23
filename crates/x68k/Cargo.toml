@@ -1,0 +1,13 @@
+[package]
+name = "rc-x68k"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Sharp X68000 files: Human68k .X executables and XDF/DIM floppy images"
+repository = "https://github.com/elpapimango/retroclawd-core"
+readme = "../../README.md"
+
+[lib]
+name = "x68k"
+
+[dependencies]
