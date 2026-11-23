@@ -37,6 +37,8 @@ pub struct Cpu {
     pub fast: bool,
     /// Set by `SET`: the next instruction is the memory-to-memory form.
     t_next: bool,
+    /// `CLI` and `PLP` take effect after the next instruction: no interrupt is taken before it.
+    irq_hold: bool,
 }
 
 impl Default for Cpu {
@@ -61,6 +63,7 @@ impl Cpu {
             mpr: [0xFF, 0xF8, 0, 0, 0, 0, 0, 0],
             fast: false,
             t_next: false,
+            irq_hold: false,
         }
     }
 
@@ -295,7 +298,8 @@ impl Cpu {
 
     /// Runs one instruction (or takes one interrupt) and returns the CPU cycles it took.
     pub fn step<B: Bus>(&mut self, bus: &mut B) -> u32 {
-        if self.p & FLAG_I == 0 && !self.t_next {
+        let hold = std::mem::take(&mut self.irq_hold);
+        if self.p & FLAG_I == 0 && !self.t_next && !hold {
             let lines = bus.irq_lines();
             if lines & IRQ2 != 0 {
                 return self.enter(bus, 0xFFF6, false);
@@ -753,6 +757,7 @@ impl Cpu {
             }
             0x28 => {
                 self.p = self.pull(bus);
+                self.irq_hold = true;
                 4
             }
             // transfers
@@ -791,6 +796,7 @@ impl Cpu {
             }
             0x58 => {
                 self.p &= !FLAG_I;
+                self.irq_hold = true;
                 2
             }
             0x78 => {
@@ -1057,8 +1063,11 @@ mod tests {
         let mut cpu = Cpu::new();
         cpu.mpr = [0, 1, 1, 1, 1, 1, 1, 0];
         cpu.reset(&mut ram);
+        ram.mem[1] = 0xEA; // NOP
         cpu.step(&mut ram);
+        // an interrupt raised now waits for the instruction after CLI
         ram.irq = IRQ1;
+        assert_eq!(cpu.step(&mut ram), 2);
         let cycles = cpu.step(&mut ram);
         assert_eq!(cycles, 8);
         assert_eq!(cpu.pc, 0xE234);
