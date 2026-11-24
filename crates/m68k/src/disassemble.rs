@@ -3,7 +3,8 @@
 //! `d0-d7/a0-a6`). Beyond the 68000 it knows MOVEC, MOVES, RTD, BKPT, EXTB, LINK.L, TRAPcc, CAS/CAS2, CMP2/CHK2,
 //! PACK/UNPK, the long multiply and divide, the bit-field group, 32-bit branch displacements and the full-format
 //! indexed addressing modes (`([bd,an,xn.w*4],od)`). A word that is no instruction for the model, or whose extension
-//! words are missing, comes back as `dc.w`; coprocessor (line F) words are left as `dc.w` too.
+//! words are missing, comes back as `dc.w`; the 68881/68882 floating-point instructions (line F, coprocessor 1, from the 68020) and the 68030's PMMU
+//! instructions (coprocessor 0) are decoded too; other coprocessor words are `dc.w`.
 
 use crate::Model;
 
@@ -345,8 +346,300 @@ fn instruction(r: &mut Rd, op: u32, model: Model) -> Option<String> {
             }
         },
         0xE => return line_e(r, op, model),
+        0xF => return line_f(r, op, model),
         _ => return None,
     })
+}
+
+const FCC: [&str; 32] = [
+    "f", "eq", "ogt", "oge", "olt", "ole", "ogl", "or", "un", "ueq", "ugt", "uge", "ult", "ule", "ne", "t", "sf", "seq",
+    "gt", "ge", "lt", "le", "gl", "gle", "ngle", "ngl", "nle", "nlt", "nge", "ngt", "sne", "st",
+];
+
+const FFMT: [&str; 8] = ["l", "s", "x", "p", "w", "d", "b", "p"];
+
+fn fp_name(op: u32) -> Option<&'static str> {
+    Some(match op {
+        0x00 => "fmove",
+        0x01 => "fint",
+        0x02 => "fsinh",
+        0x03 => "fintrz",
+        0x04 => "fsqrt",
+        0x06 => "flognp1",
+        0x08 => "fetoxm1",
+        0x09 => "ftanh",
+        0x0A => "fatan",
+        0x0C => "fasin",
+        0x0D => "fatanh",
+        0x0E => "fsin",
+        0x0F => "ftan",
+        0x10 => "fetox",
+        0x11 => "ftwotox",
+        0x12 => "ftentox",
+        0x14 => "flogn",
+        0x15 => "flog10",
+        0x16 => "flog2",
+        0x18 => "fabs",
+        0x19 => "fcosh",
+        0x1A => "fneg",
+        0x1C => "facos",
+        0x1D => "fcos",
+        0x1E => "fgetexp",
+        0x1F => "fgetman",
+        0x20 => "fdiv",
+        0x21 => "fmod",
+        0x22 => "fadd",
+        0x23 => "fmul",
+        0x24 => "fsgldiv",
+        0x25 => "frem",
+        0x26 => "fscale",
+        0x27 => "fsglmul",
+        0x28 => "fsub",
+        0x38 => "fcmp",
+        0x3A => "ftst",
+        _ => return None,
+    })
+}
+
+/// A floating-point operand in memory or a data register, in the source/destination `fmt` (0 long, 1 single, 2
+/// extended, 3 packed, 4 word, 5 double, 6 byte, 7 packed with a dynamic k-factor).
+fn fp_ea(r: &mut Rd, m: u32, n: u32, fmt: u32, model: Model) -> Option<String> {
+    let big = matches!(fmt, 2 | 3 | 5 | 7);
+    if m == 1 || (m == 0 && big) {
+        return None;
+    }
+    if (m, n) == (7, 4) {
+        return Some(match fmt {
+            0 | 1 => r.imm(2)?,
+            4 => r.imm(1)?,
+            6 => r.imm(0)?,
+            _ => {
+                let mut s = String::from("#$");
+                for _ in 0..if fmt == 5 { 2 } else { 3 } {
+                    s += &format!("{:08x}", r.long()?);
+                }
+                s
+            }
+        });
+    }
+    ea(r, m, n, 2, model)
+}
+
+fn fp_list(mask: u32) -> String {
+    let mut parts = Vec::new();
+    let mut i = 0;
+    while i < 8 {
+        if mask >> i & 1 == 0 {
+            i += 1;
+            continue;
+        }
+        let s = i;
+        while i + 1 < 8 && mask >> (i + 1) & 1 != 0 {
+            i += 1;
+        }
+        parts.push(if s == i { format!("fp{s}") } else { format!("fp{s}-fp{i}") });
+        i += 1;
+    }
+    parts.join("/")
+}
+
+/// Line F: the 68881/68882 (coprocessor 1, 68020 and 68030) and the 68030's PMMU (coprocessor 0).
+fn line_f(r: &mut Rd, op: u32, model: Model) -> Option<String> {
+    let cpid = (op >> 9) & 7;
+    let kind = (op >> 6) & 7;
+    let (m, n) = ((op >> 3) & 7, op & 7);
+    match cpid {
+        1 if model.at_least_020() => fpu(r, op, kind, m, n, model),
+        0 if model == Model::M68030 && kind == 0 => pmmu(r, m, n, model),
+        _ => None,
+    }
+}
+
+fn fpu(r: &mut Rd, op: u32, kind: u32, m: u32, n: u32, model: Model) -> Option<String> {
+    match kind {
+        0 => {
+            let ext = r.word()?;
+            let (src, dst) = ((ext >> 10) & 7, (ext >> 7) & 7);
+            match ext >> 13 {
+                0b000 | 0b010 => {
+                    let from_ea = ext & 0x4000 != 0;
+                    if from_ea && ext & 0xFC00 == 0x5C00 {
+                        return Some(format!("fmovecr #${:x},fp{dst}", ext & 0x7F));
+                    }
+                    if from_ea && src == 7 {
+                        return None;
+                    }
+                    let (fmt, s) = if from_ea {
+                        (FFMT[src as usize], fp_ea(r, m, n, src, model)?)
+                    } else {
+                        ("x", format!("fp{src}"))
+                    };
+                    let o = ext & 0x7F;
+                    if (0x30..=0x37).contains(&o) {
+                        return Some(format!("fsincos.{fmt} {s},fp{}:fp{dst}", o & 7));
+                    }
+                    let name = fp_name(o)?;
+                    Some(if name == "ftst" { format!("ftst.{fmt} {s}") } else { format!("{name}.{fmt} {s},fp{dst}") })
+                }
+                0b011 => {
+                    if m == 1 || (m == 7 && n >= 2) || (m == 0 && matches!(src, 2 | 3 | 5 | 7)) {
+                        return None;
+                    }
+                    let d = ea(r, m, n, 2, model)?;
+                    let k = match src {
+                        3 => format!("{{#{}}}", (((ext & 0x7F) as i32) << 25) >> 25),
+                        7 => format!("{{d{}}}", (ext >> 4) & 7),
+                        _ => String::new(),
+                    };
+                    Some(format!("fmove.{} fp{dst},{d}{k}", FFMT[src as usize]))
+                }
+                0b100 | 0b101 => {
+                    let sel = src;
+                    let count = sel.count_ones();
+                    if count == 0 || (m == 0 && count != 1) || (m == 1 && sel != 1) {
+                        return None;
+                    }
+                    let to_reg = ext >> 13 == 0b100;
+                    if !to_reg && (m == 7 && n >= 2 || m == 1 && sel != 1) {
+                        return None;
+                    }
+                    let names: Vec<&str> =
+                        [(4, "fpcr"), (2, "fpsr"), (1, "fpiar")].iter().filter(|(b, _)| sel & b != 0).map(|(_, s)| *s).collect();
+                    let list = names.join("/");
+                    let e = if (m, n) == (7, 4) {
+                        if count != 1 {
+                            return None;
+                        }
+                        r.imm(2)?
+                    } else {
+                        ea(r, m, n, 2, model)?
+                    };
+                    let name = if count == 1 { "fmove.l" } else { "fmovem.l" };
+                    Some(if to_reg { format!("{name} {e},{list}") } else { format!("{name} {list},{e}") })
+                }
+                _ => {
+                    let to_reg = ext >> 13 == 0b110;
+                    let pre = !to_reg && (ext >> 11) & 3 < 2;
+                    let dynamic = (ext >> 11) & 1 == 1;
+                    if m <= 1
+                        || (to_reg && m == 4)
+                        || (!to_reg && m == 3)
+                        || (m == 7 && n == 4)
+                        || (!to_reg && m == 7 && n >= 2)
+                    {
+                        return None;
+                    }
+                    let list = if dynamic {
+                        format!("d{}", (ext >> 4) & 7)
+                    } else {
+                        let mask = ext & 0xFF;
+                        // bit 7 is fp0 except in the predecrement form, where bit 0 is
+                        fp_list(if pre { mask } else { (mask as u8).reverse_bits() as u32 })
+                    };
+                    let e = ea(r, m, n, 2, model)?;
+                    Some(if to_reg { format!("fmovem.x {e},{list}") } else { format!("fmovem.x {list},{e}") })
+                }
+            }
+        }
+        1 => {
+            let ext = r.word()?;
+            let cond = (ext & 0x3F) as usize;
+            if cond > 31 {
+                return None;
+            }
+            let cc = FCC[cond];
+            if m == 1 {
+                let base = r.addr();
+                return Some(format!("fdb{cc} d{n},${:x}", base.wrapping_add(s16(r.word()?) as u32) & 0xFF_FFFF));
+            }
+            if m == 7 && n >= 2 {
+                return Some(match n {
+                    2 => format!("ftrap{cc}.w #${:x}", r.word()?),
+                    3 => format!("ftrap{cc}.l #${:x}", r.long()?),
+                    4 => format!("ftrap{cc}"),
+                    _ => return None,
+                });
+            }
+            Some(format!("fs{cc} {}", ea(r, m, n, 0, model)?))
+        }
+        2 | 3 => {
+            let cond = (op & 0x3F) as usize;
+            if cond > 31 {
+                return None;
+            }
+            let base = r.pc.wrapping_add(2);
+            let (disp, size) = if kind == 2 { (s16(r.word()?), ".w") } else { (r.long()? as i32, ".l") };
+            if cond == 0 && disp == 0 && kind == 2 {
+                return Some("fnop".into());
+            }
+            Some(format!("fb{}{size} ${:x}", FCC[cond], base.wrapping_add(disp as u32) & 0xFF_FFFF))
+        }
+        4 | 5 => {
+            if m == 0 || m == 1 || (m == 7 && n >= 2) {
+                return None;
+            }
+            if kind == 4 && m == 3 || kind == 5 && m == 4 {
+                return None;
+            }
+            Some(format!("{} {}", if kind == 4 { "fsave" } else { "frestore" }, ea(r, m, n, 2, model)?))
+        }
+        _ => None,
+    }
+}
+
+fn pmmu_fc(f: u32) -> Option<String> {
+    Some(match f {
+        0 => "sfc".into(),
+        1 => "dfc".into(),
+        _ if f & 0x18 == 0x10 => format!("#{}", f & 7),
+        _ if f & 0x18 == 0x08 => format!("d{}", f & 7),
+        _ => return None,
+    })
+}
+
+fn pmmu(r: &mut Rd, m: u32, n: u32, model: Model) -> Option<String> {
+    let ext = r.word()?;
+    let preg = (ext >> 10) & 7;
+    // every operand of these instructions is in memory
+    let mem = |r: &mut Rd| -> Option<String> {
+        if m <= 1 || (m == 7 && n == 4) {
+            return None;
+        }
+        ea(r, m, n, 2, model)
+    };
+    let to_mem = ext & 0x200 != 0;
+    let fd = if ext & 0x100 != 0 { "fd" } else { "" };
+    let mv = |reg: &str, e: String| -> String {
+        if to_mem { format!("pmove {reg},{e}") } else { format!("pmove{fd} {e},{reg}") }
+    };
+    match ext >> 13 {
+        0 if preg == 2 || preg == 3 => Some(mv(if preg == 2 { "tt0" } else { "tt1" }, mem(r)?)),
+        2 if matches!(preg, 0 | 2 | 3) => Some(mv(["tc", "", "srp", "crp"][preg as usize], mem(r)?)),
+        3 if preg == 0 => Some(mv("psr", mem(r)?)),
+        1 => {
+            let fc = || pmmu_fc(ext & 0x1F);
+            match preg {
+                0 => {
+                    let e = mem(r)?;
+                    Some(format!("pload{} {},{e}", if to_mem { "r" } else { "w" }, fc()?))
+                }
+                1 => Some("pflusha".into()),
+                4 => Some(format!("pflush {},#{}", fc()?, (ext >> 5) & 7)),
+                6 => {
+                    let e = mem(r)?;
+                    Some(format!("pflush {},#{},{e}", fc()?, (ext >> 5) & 7))
+                }
+                _ => None,
+            }
+        }
+        4 => {
+            let fc = pmmu_fc(ext & 0x1F)?;
+            let e = mem(r)?;
+            let an = if ext & 0x100 != 0 { format!(",a{}", (ext >> 5) & 7) } else { String::new() };
+            Some(format!("ptest{} {fc},{e},#{preg}{an}", if to_mem { "r" } else { "w" }))
+        }
+        _ => None,
+    }
 }
 
 fn line0(r: &mut Rd, op: u32, model: Model) -> Option<String> {
@@ -661,5 +954,41 @@ mod tests {
         assert_eq!(dis(&[0xE9D0, 0x0108], m), ("bfextu (a0){4:8},d0".into(), 4));
         assert_eq!(dis(&[0x0CFC, 0x8001, 0x9002], m).1, 6);
         assert_eq!(dis(&[0x60FF, 0x0000, 0x0010], m), ("bra.l $1012".into(), 6));
+    }
+
+    #[test]
+    fn floating_point_instructions() {
+        let m = Model::M68030;
+        assert_eq!(dis(&[0xF200, 0x0422], m), ("fadd.x fp1,fp0".into(), 4));
+        assert_eq!(dis(&[0xF210, 0x4422], m), ("fadd.s (a0),fp0".into(), 4));
+        assert_eq!(dis(&[0xF23C, 0x4400, 0x3F80, 0x0000], m), ("fmove.s #$3f800000,fp0".into(), 8));
+        assert_eq!(dis(&[0xF200, 0x5C0B], m), ("fmovecr #$b,fp0".into(), 4));
+        assert_eq!(dis(&[0xF210, 0x6080], m), ("fmove.l fp1,(a0)".into(), 4));
+        assert_eq!(dis(&[0xF210, 0x6C80 | 0x7C], m), ("fmove.p fp1,(a0){#-4}".into(), 4));
+        assert_eq!(dis(&[0xF200, 0x0430], m), ("fsincos.x fp1,fp0:fp0".into(), 4));
+        assert_eq!(dis(&[0xF200, 0x043A], m), ("ftst.x fp1".into(), 4));
+        assert_eq!(dis(&[0xF200, 0x9000], m), ("fmove.l d0,fpcr".into(), 4));
+        assert_eq!(dis(&[0xF200, 0xA400], m), ("fmove.l fpiar,d0".into(), 4));
+        assert_eq!(dis(&[0xF227, 0xE003], m), ("fmovem.x fp0-fp1,-(a7)".into(), 4));
+        assert_eq!(dis(&[0xF21F, 0xD0C0], m), ("fmovem.x (a7)+,fp0-fp1".into(), 4));
+        assert_eq!(dis(&[0xF281, 0x0010], m), ("fbeq.w $1012".into(), 4));
+        assert_eq!(dis(&[0xF280, 0x0000], m), ("fnop".into(), 4));
+        assert_eq!(dis(&[0xF248, 0x000F, 0xFFFC], m), ("fdbt d0,$1000".into(), 6));
+        assert_eq!(dis(&[0xF250, 0x0001], m), ("fseq (a0)".into(), 4));
+        assert_eq!(dis(&[0xF210, 0x0000], Model::M68000).0, "dc.w $f210");
+    }
+
+    #[test]
+    fn pmmu_instructions() {
+        let m = Model::M68030;
+        assert_eq!(dis(&[0xF010, 0x4000], m), ("pmove (a0),tc".into(), 4));
+        assert_eq!(dis(&[0xF010, 0x4200], m), ("pmove tc,(a0)".into(), 4));
+        assert_eq!(dis(&[0xF010, 0x4D00], m), ("pmovefd (a0),crp".into(), 4));
+        assert_eq!(dis(&[0xF010, 0x0800], m), ("pmove (a0),tt0".into(), 4));
+        assert_eq!(dis(&[0xF010, 0x6200], m), ("pmove psr,(a0)".into(), 4));
+        assert_eq!(dis(&[0xF000, 0x2400], m), ("pflusha".into(), 4));
+        assert_eq!(dis(&[0xF010, 0x2015], m), ("ploadw #5,(a0)".into(), 4));
+        assert_eq!(dis(&[0xF011, 0x8000 | 2 << 10 | 0x200 | 0x100 | 0x15], m), ("ptestr #5,(a1),#2,a0".into(), 4));
+        assert_eq!(dis(&[0xF010, 0x4000], Model::M68020).0, "dc.w $f010");
     }
 }
