@@ -191,6 +191,28 @@ fn character_conversion_type_two_writes_bitplanes() {
 }
 
 #[test]
+fn character_conversion_type_one_converts_a_bitmap_by_dma() {
+    let mut c = Cart::new();
+    // 2 bits per pixel, one tile wide: row 0 = pixels 1,0,0,0,0,0,0,2; row 1 starts with a 3
+    c.ram[0] = 0x01;
+    c.ram[1] = 0x80;
+    c.ram[2] = 0x03;
+    let mut s = Sa1::new();
+    w(&mut s, &mut c, Side::Sa1, 0x2230, 0xB1); // DMA on, conversion type 1, BW-RAM to I-RAM
+    w(&mut s, &mut c, Side::Sa1, 0x2231, 0x02); // 2 bits per pixel, 1 tile wide
+    w(&mut s, &mut c, Side::Sa1, 0x2232, 0);
+    w(&mut s, &mut c, Side::Sa1, 0x2233, 0);
+    w(&mut s, &mut c, Side::Sa1, 0x2234, 0);
+    w(&mut s, &mut c, Side::Sa1, 0x2238, 16);
+    w(&mut s, &mut c, Side::Sa1, 0x2239, 0);
+    w(&mut s, &mut c, Side::Sa1, 0x2235, 0x10);
+    w(&mut s, &mut c, Side::Sa1, 0x2236, 0x00);
+    assert_eq!((s.st.iram[0x10], s.st.iram[0x11]), (0x80, 0x01));
+    assert_eq!((s.st.iram[0x12], s.st.iram[0x13]), (0x80, 0x80));
+    assert_eq!(r(&mut s, &mut c, Side::Sa1, 0x2301) & 0x20, 0x20);
+}
+
+#[test]
 fn hv_timer_raises_the_sa1_irq_flag() {
     let mut c = Cart::new();
     let mut s = Sa1::new();

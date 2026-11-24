@@ -1,11 +1,10 @@
 //! SA-1 coprocessor: a second 65C816 (`rc-w65c816`) at 10.74 MHz with the cartridge's memory mapper, 2 KB of I-RAM,
 //! the register file at `$2200-$23FF`, the S-CPU/SA-1 message and interrupt registers, the HV and linear timers,
-//! write protection, normal DMA, character conversion type 2, the bitmap view of BW-RAM, and the multiply, divide,
+//! write protection, normal DMA, character conversion types 1 and 2, the bitmap view of BW-RAM, and the multiply, divide,
 //! cumulative-sum and variable-length-bit units.
 //!
 //! The register layout and unit behaviour are written from memory of the SA-1 documentation (`[H?]`: no scanned
-//! source and no reference to compare with). Not modelled: character conversion type 1 (DMA that converts a
-//! BW-RAM bitmap on the fly), the bus arbitration wait states between the two CPUs (every SA-1 cycle is one clock),
+//! source and no reference to compare with). Not modelled: the bus arbitration wait states between the two CPUs (every SA-1 cycle is one clock),
 //! and the SA-1 clock stretching when it reads ROM at the same time as the S-CPU.
 #![forbid(unsafe_code)]
 
@@ -545,6 +544,8 @@ impl State {
                 self.dda = self.dda & 0xFF_00FF | (v as u32) << 8;
                 if self.dcnt & 0x80 != 0 && self.dcnt & 0x20 == 0 && self.dcnt & 8 == 0 {
                     self.normal_dma(mem);
+                } else if self.dcnt & 0xB8 == 0xB0 {
+                    self.convert_bitmap_dma(mem);
                 }
             }
             0x2237 => {
@@ -649,6 +650,37 @@ impl State {
             } else {
                 mem.bwram_write(dst & 0x3_FFFF, b);
             }
+        }
+        self.dtc = 0;
+        self.cfr |= 0x20;
+    }
+
+    /// Character conversion type 1: a DMA from a packed bitmap in BW-RAM to I-RAM as SNES tile data. The bitmap is
+    /// `1 << SIZE` tiles wide (`CDMA` bits 4-2) with 8, 4 or 2 bits per pixel (`CDMA` bits 1-0), pixels packed least
+    /// significant bits first (as in the bitmap view), rows one after the other; `DTC` bytes of tiles are written from `DDA`.
+    fn convert_bitmap_dma<M: Sa1Mem>(&mut self, mem: &mut M) {
+        let bpp = match self.cdma & 3 {
+            0 => 8u32,
+            1 => 4,
+            _ => 2,
+        };
+        let width = 1u32 << ((self.cdma >> 2) & 7).min(5);
+        let count = if self.dtc == 0 { 0x1_0000 } else { self.dtc as u32 };
+        let tile_bytes = 8 * bpp;
+        for i in 0..count {
+            let tile = i / tile_bytes;
+            let within = i % tile_bytes;
+            let (y, plane) = (((within & 15) >> 1), (within >> 4) * 2 + (within & 1));
+            let (tx, ty) = (tile % width, tile / width);
+            let mut byte = 0u8;
+            for px in 0..8 {
+                let pixel = (ty * 8 + y) * width * 8 + tx * 8 + px;
+                let bit = pixel * bpp;
+                let b = mem.bwram_read(self.sda.wrapping_add(bit >> 3) & 0x3_FFFF);
+                let v = (b >> (bit & 7)) & ((1u16 << bpp) - 1) as u8;
+                byte |= ((v >> plane) & 1) << (7 - px);
+            }
+            self.iram[(self.dda.wrapping_add(i) & 0x7FF) as usize] = byte;
         }
         self.dtc = 0;
         self.cfr |= 0x20;
