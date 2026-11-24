@@ -1,0 +1,14 @@
+[package]
+name = "rc-sa1"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/elpapimango/retroclawd-core"
+readme = "../../README.md"
+description = "SA-1 coprocessor for the Super Nintendo: a second 65C816 with the memory mapper, DMA, math unit and interrupt registers"
+
+[lib]
+name = "sa1"
+
+[dependencies]
+w65c816 = { package = "rc-w65c816", version = "0.1", path = "../w65c816" }
