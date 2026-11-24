@@ -88,7 +88,19 @@ pub trait Bus {
     fn coprocessor(&mut self, _cpu: &mut Cpu, _id: u8, _opcode: u16) -> CoprocessorResult {
         CoprocessorResult::NotPresent
     }
+    /// Address translation (the 68030's on-chip PMMU lives in the machine, see the `rc-pmmu` crate): called for every
+    /// access with the logical address, the function code and whether it is a write; `read`/`write` then get the
+    /// physical address. An `Err` is a bus error (vector 2); the core restores the registers to their values at the
+    /// start of the instruction and stacks a format B frame whose PC is the instruction, so `RTE` restarts it.
+    /// The default is no translation.
+    fn translate(&mut self, addr: u32, _fc: u8, _write: bool) -> Result<u32, BusFault> {
+        Ok(addr)
+    }
 }
+
+/// The access was refused by the address translation (see `Bus::translate`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BusFault;
 
 pub(crate) const SR_T1: u16 = 0x8000;
 pub(crate) const SR_T0: u16 = 0x4000;
@@ -112,6 +124,8 @@ pub(crate) enum Exc {
     },
     /// An odd address on a 68000 or 68010.
     Address { addr: u32, write: bool },
+    /// An access the address translation refused: restart the instruction after the handler.
+    BusError { addr: u32, write: bool, fc: u8 },
     /// `STOP` or a halted state: end the instruction without an exception.
     Stop,
 }
@@ -147,6 +161,18 @@ pub struct Cpu {
     pub(crate) clocks: u32,
     #[serde(skip)]
     pub(crate) fault: Option<(u32, bool)>,
+    #[serde(skip)]
+    snapshot: Option<Snapshot>,
+}
+
+#[derive(Clone, Debug)]
+struct Snapshot {
+    d: [u32; 8],
+    a: [u32; 8],
+    sr: u16,
+    usp: u32,
+    isp: u32,
+    msp: u32,
 }
 
 impl Cpu {
@@ -173,6 +199,7 @@ impl Cpu {
             trace_pending: false,
             clocks: 0,
             fault: None,
+            snapshot: None,
         }
     }
 
@@ -243,6 +270,10 @@ impl Cpu {
 
     // ---- memory ----
 
+    fn tr<B: Bus>(bus: &mut B, addr: u32, fc: u8, write: bool) -> Result<u32, Exc> {
+        bus.translate(addr, fc, write).map_err(|_| Exc::BusError { addr, write, fc })
+    }
+
     pub(crate) fn read_mem<B: Bus>(
         &mut self,
         bus: &mut B,
@@ -252,7 +283,8 @@ impl Cpu {
     ) -> Result<u32, Exc> {
         self.clocks += 4;
         if size == Size::B {
-            return Ok(bus.read(addr, size, fc) & 0xFF);
+            let p = Self::tr(bus, addr, fc, false)?;
+            return Ok(bus.read(p, size, fc) & 0xFF);
         }
         if addr & 1 != 0 {
             if !self.model.at_least_020() {
@@ -262,21 +294,21 @@ impl Cpu {
             let n = size.bytes();
             let mut v = 0u32;
             for i in 0..n {
-                v = v << 8 | bus.read(addr.wrapping_add(i), Size::B, fc) & 0xFF;
+                let a = addr.wrapping_add(i);
+                let p = Self::tr(bus, a, fc, false)?;
+                v = v << 8 | bus.read(p, Size::B, fc) & 0xFF;
             }
             return Ok(v);
         }
-        if size == Size::L && addr & 2 != 0 && self.model.at_least_020() {
-            let hi = bus.read(addr, Size::W, fc) & 0xFFFF;
-            let lo = bus.read(addr.wrapping_add(2), Size::W, fc) & 0xFFFF;
+        if size == Size::L && (addr & 2 != 0 || !self.model.at_least_020()) {
+            let a2 = addr.wrapping_add(2);
+            let (p1, p2) = (Self::tr(bus, addr, fc, false)?, Self::tr(bus, a2, fc, false)?);
+            let hi = bus.read(p1, Size::W, fc) & 0xFFFF;
+            let lo = bus.read(p2, Size::W, fc) & 0xFFFF;
             return Ok(hi << 16 | lo);
         }
-        if size == Size::L && !self.model.at_least_020() {
-            let hi = bus.read(addr, Size::W, fc) & 0xFFFF;
-            let lo = bus.read(addr.wrapping_add(2), Size::W, fc) & 0xFFFF;
-            return Ok(hi << 16 | lo);
-        }
-        Ok(bus.read(addr, size, fc) & size.mask())
+        let p = Self::tr(bus, addr, fc, false)?;
+        Ok(bus.read(p, size, fc) & size.mask())
     }
 
     pub(crate) fn write_mem<B: Bus>(
@@ -289,7 +321,8 @@ impl Cpu {
     ) -> Result<(), Exc> {
         self.clocks += 4;
         if size == Size::B {
-            bus.write(addr, size, value & 0xFF, fc);
+            let p = Self::tr(bus, addr, fc, true)?;
+            bus.write(p, size, value & 0xFF, fc);
             return Ok(());
         }
         if addr & 1 != 0 {
@@ -299,16 +332,21 @@ impl Cpu {
             let n = size.bytes();
             for i in 0..n {
                 let shift = 8 * (n - 1 - i);
-                bus.write(addr.wrapping_add(i), Size::B, (value >> shift) & 0xFF, fc);
+                let a = addr.wrapping_add(i);
+                let p = Self::tr(bus, a, fc, true)?;
+                bus.write(p, Size::B, (value >> shift) & 0xFF, fc);
             }
             return Ok(());
         }
         if size == Size::L && (addr & 2 != 0 || !self.model.at_least_020()) {
-            bus.write(addr, Size::W, value >> 16, fc);
-            bus.write(addr.wrapping_add(2), Size::W, value & 0xFFFF, fc);
+            let a2 = addr.wrapping_add(2);
+            let (p1, p2) = (Self::tr(bus, addr, fc, true)?, Self::tr(bus, a2, fc, true)?);
+            bus.write(p1, Size::W, value >> 16, fc);
+            bus.write(p2, Size::W, value & 0xFFFF, fc);
             return Ok(());
         }
-        bus.write(addr, size, value & size.mask(), fc);
+        let p = Self::tr(bus, addr, fc, true)?;
+        bus.write(p, size, value & size.mask(), fc);
         Ok(())
     }
 
@@ -441,6 +479,7 @@ impl Cpu {
                 let ipc = self.insn_pc;
                 self.take_exception(bus, vector, stacked, old, format2, ipc);
             }
+            Exc::BusError { addr, write, fc } => self.bus_error(bus, addr, write, fc),
             Exc::Address { addr, write } => {
                 self.fault = Some((addr, write));
                 let old = self.enter_supervisor();
@@ -482,6 +521,43 @@ impl Cpu {
                 self.pc = self.vector_address(bus, 3);
             }
         }
+    }
+
+    /// An access fault: registers back to the start of the instruction, a format B frame (46 words: the header, the
+    /// special status word, the fault address, zeros for the pipeline and internal state) with the PC of the
+    /// instruction, and the bus error vector. `RTE` restarts the instruction.
+    fn bus_error<B: Bus>(&mut self, bus: &mut B, addr: u32, write: bool, fc: u8) {
+        self.fault = Some((addr, write));
+        if let Some(s) = self.snapshot.take() {
+            self.d = s.d;
+            self.a = s.a;
+            self.sr = s.sr;
+            self.usp = s.usp;
+            self.isp = s.isp;
+            self.msp = s.msp;
+        }
+        let old = self.enter_supervisor();
+        let pc = self.insn_pc;
+        let ssw: u16 = 0x0100 | if write { 0 } else { 0x40 } | (fc as u16 & 7);
+        let mut w = [0u16; 46];
+        w[0] = old;
+        w[1] = (pc >> 16) as u16;
+        w[2] = pc as u16;
+        w[3] = 0xB000 | 2 << 2;
+        w[5] = ssw;
+        w[8] = (addr >> 16) as u16;
+        w[9] = addr as u16;
+        let r = (|| -> Result<(), Exc> {
+            for i in (0..46).rev() {
+                self.push_word(bus, w[i])?;
+            }
+            Ok(())
+        })();
+        if r.is_err() {
+            self.halted = true;
+            return;
+        }
+        self.pc = self.vector_address(bus, 2);
     }
 
     /// RESET: the stack pointer and the program counter from the vector table.
@@ -527,6 +603,12 @@ impl Cpu {
             return 4;
         }
         self.insn_pc = self.pc;
+        // the 68030's PMMU can refuse an access half way through an instruction: remember the registers
+        self.snapshot = if self.model == Model::M68030 {
+            Some(Snapshot { d: self.d, a: self.a, sr: self.sr, usp: self.usp, isp: self.isp, msp: self.msp })
+        } else {
+            None
+        };
         let trace = self.sr & SR_T1 != 0;
         let result = self.execute(bus);
         match result {

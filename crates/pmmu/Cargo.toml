@@ -1,0 +1,14 @@
+[package]
+name = "rc-pmmu"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/elpapimango/retroclawd-core"
+readme = "../../README.md"
+description = "MC68030 on-chip paged memory management unit (PMMU) for rc-m68k: table walks, ATC, transparent translation, PMOVE/PTEST/PLOAD/PFLUSH"
+
+[lib]
+name = "pmmu"
+
+[dependencies]
+m68k = { package = "rc-m68k", path = "../m68k", version = "0.1.2" }

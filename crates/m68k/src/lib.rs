@@ -19,5 +19,5 @@ mod ea;
 mod exec;
 mod fields;
 
-pub use cpu::{Bus, CoprocessorResult, Cpu, CpuFault, Iack, Model, Size};
+pub use cpu::{Bus, BusFault, CoprocessorResult, Cpu, CpuFault, Iack, Model, Size};
 pub use ea::CpOperand;
