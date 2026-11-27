@@ -7,7 +7,10 @@ struct Cart {
 
 impl Cart {
     fn new() -> Self {
-        Cart { rom: vec![0; 0x40_0000], ram: vec![0; 0x4_0000] }
+        Cart {
+            rom: vec![0; 0x40_0000],
+            ram: vec![0; 0x4_0000],
+        }
     }
 }
 
@@ -36,12 +39,18 @@ fn r(s: &mut Sa1, c: &mut Cart, side: Side, a: u32) -> u8 {
 fn sa1_runs_a_program_from_the_reset_vector() {
     let mut c = Cart::new();
     // LDA #$FF ; STA $222A ; LDA #$42 ; STA $3000 ; STP
-    let prog = [0xA9, 0xFF, 0x8D, 0x2A, 0x22, 0xA9, 0x42, 0x8D, 0x00, 0x30, 0xDB];
+    let prog = [
+        0xA9, 0xFF, 0x8D, 0x2A, 0x22, 0xA9, 0x42, 0x8D, 0x00, 0x30, 0xDB,
+    ];
     c.rom[..prog.len()].copy_from_slice(&prog);
     let mut s = Sa1::new();
     w(&mut s, &mut c, Side::Scpu, 0x2203, 0x00);
     w(&mut s, &mut c, Side::Scpu, 0x2204, 0x80);
-    assert_eq!(s.run(&mut c, 100), 100, "held in reset until CCNT clears bit 5");
+    assert_eq!(
+        s.run(&mut c, 100),
+        100,
+        "held in reset until CCNT clears bit 5"
+    );
     assert_eq!(s.st.iram[0], 0);
     w(&mut s, &mut c, Side::Scpu, 0x2200, 0x00);
     s.run(&mut c, 100);
@@ -123,7 +132,9 @@ fn multiply_divide_and_cumulative_sum() {
         w(s, c, Side::Sa1, 0x2254, (b >> 8) as u8);
     };
     let result = |s: &mut Sa1, c: &mut Cart| -> u64 {
-        (0..5).map(|i| (r(s, c, Side::Sa1, 0x2306 + i) as u64) << (8 * i)).sum()
+        (0..5)
+            .map(|i| (r(s, c, Side::Sa1, 0x2306 + i) as u64) << (8 * i))
+            .sum()
     };
     setup(&mut s, &mut c, 0, -3, 5);
     assert_eq!(result(&mut s, &mut c) as u32 as i32, -15);
@@ -223,4 +234,51 @@ fn hv_timer_raises_the_sa1_irq_flag() {
     assert_eq!(r(&mut s, &mut c, Side::Sa1, 0x2301) & 0x40, 0);
     s.st.set_hv(100, 20);
     assert_eq!(r(&mut s, &mut c, Side::Sa1, 0x2301) & 0x40, 0x40);
+}
+
+/// Runs `prog` (at ROM 0, reset vector 0) until STP and returns the SA-1 clocks it took.
+fn clocks_of(prog: &[u8], scpu: Option<sa1::Area>) -> u32 {
+    let mut c = Cart::new();
+    c.rom[..prog.len()].copy_from_slice(prog);
+    let mut s = Sa1::new();
+    w(&mut s, &mut c, Side::Scpu, 0x2203, 0x00); // the SA-1's reset vector: $8000 (ROM offset 0)
+    w(&mut s, &mut c, Side::Scpu, 0x2204, 0x80);
+    w(&mut s, &mut c, Side::Scpu, 0x2200, 0x00);
+    s.st.set_scpu_area(scpu);
+    let mut total = 0;
+    while !s.cpu.stopped {
+        total += s.run(&mut c, 1);
+        assert!(total < 10_000);
+    }
+    total
+}
+
+#[test]
+fn bwram_and_bus_conflicts_cost_the_sa1_wait_clocks() {
+    // LDA $0000 (I-RAM) ; STP
+    let iram = clocks_of(&[0xAD, 0x00, 0x00, 0xDB], None);
+    // LDA $6000 (BW-RAM through the window) ; STP
+    let bw = clocks_of(&[0xAD, 0x00, 0x60, 0xDB], None);
+    assert_eq!(bw, iram + 1, "a BW-RAM access takes two SA-1 clocks");
+    // the S-CPU on the ROM: each of the SA-1's ROM fetches waits a clock (LDA abs = 3 fetches, STP = 1)
+    let rom_busy = clocks_of(&[0xAD, 0x00, 0x00, 0xDB], Some(sa1::Area::Rom));
+    assert_eq!(rom_busy, iram + 4);
+    // the S-CPU on BW-RAM: the SA-1's BW-RAM access waits two more
+    let bw_busy = clocks_of(&[0xAD, 0x00, 0x60, 0xDB], Some(sa1::Area::Bwram));
+    assert_eq!(bw_busy, bw + 2);
+    // the S-CPU on I-RAM: the SA-1's I-RAM access waits one
+    let iram_busy = clocks_of(&[0xAD, 0x00, 0x00, 0xDB], Some(sa1::Area::Iram));
+    assert_eq!(iram_busy, iram + 1);
+}
+
+#[test]
+fn the_host_learns_which_area_an_address_is() {
+    let s = Sa1::new();
+    assert_eq!(s.st.area(Side::Scpu, 0x00_8000), Some(sa1::Area::Rom));
+    assert_eq!(s.st.area(Side::Scpu, 0xC0_0000), Some(sa1::Area::Rom));
+    assert_eq!(s.st.area(Side::Scpu, 0x00_3000), Some(sa1::Area::Iram));
+    assert_eq!(s.st.area(Side::Scpu, 0x40_0000), Some(sa1::Area::Bwram));
+    assert_eq!(s.st.area(Side::Scpu, 0x00_6000), Some(sa1::Area::Bwram));
+    assert_eq!(s.st.area(Side::Scpu, 0x00_2200), None);
+    assert_eq!(s.st.area(Side::Scpu, 0x7E_0000), None);
 }

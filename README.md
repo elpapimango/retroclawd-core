@@ -21,7 +21,7 @@ Every crate is published on crates.io as `rc-<name>` and imported under its shor
 - The suites are fetched, never committed: `scripts/fetch_singlesteptests.sh 65816 <folder>` (or `spc700`), then
   `RC_SST_65816=<folder> cargo test --release -p rc-w65c816 --test singlestep`.
 
-Planned: the SA-1 and Super FX coprocessors, 68010 / 68020 / 68030 with the 68881/68882 FPU and the 68030 PMMU.
+The FPU, PMMU, SA-1 and Super FX semantics (and the SA-1's bus wait clocks) are `[H?]`: written from documentation, with no reference to compare them with.
 
 ## Use
 

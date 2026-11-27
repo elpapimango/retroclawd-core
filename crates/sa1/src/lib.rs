@@ -4,8 +4,12 @@
 //! cumulative-sum and variable-length-bit units.
 //!
 //! The register layout and unit behaviour are written from memory of the SA-1 documentation (`[H?]`: no scanned
-//! source and no reference to compare with). Not modelled: the bus arbitration wait states between the two CPUs (every SA-1 cycle is one clock),
-//! and the SA-1 clock stretching when it reads ROM at the same time as the S-CPU.
+//! source and no reference to compare with).
+//!
+//! Bus timing `[H?]` (as the SA-1 documentation and other emulators describe it; nothing here to measure against): an
+//! SA-1 bus cycle is one clock, a BW-RAM access two. When the S-CPU is on the same memory (ROM, I-RAM or BW-RAM) the
+//! SA-1 waits: one clock more on ROM and I-RAM, two more on BW-RAM. The host says where the S-CPU is with
+//! [`State::set_scpu_area`] (and finds an address's area with [`State::area`]); without it there are no conflicts.
 #![forbid(unsafe_code)]
 
 use w65c816::{Bus, Cpu};
@@ -16,6 +20,14 @@ pub trait Sa1Mem {
     fn rom(&mut self, offset: u32) -> u8;
     fn bwram_read(&mut self, offset: u32) -> u8;
     fn bwram_write(&mut self, offset: u32, value: u8);
+}
+
+/// The memories the two CPUs share, for the bus conflict waits.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Area {
+    Rom,
+    Iram,
+    Bwram,
 }
 
 /// Which processor is accessing; the register file is split between them and the memory map differs.
@@ -98,6 +110,9 @@ pub struct State {
     // the SA-1 leaves reset
     need_reset: bool,
     nmi_prev: bool,
+    // bus timing: where the S-CPU is, the wait clocks the SA-1's accesses added
+    scpu_area: Option<Area>,
+    waits: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -114,7 +129,10 @@ impl Default for Sa1 {
 
 impl Sa1 {
     pub fn new() -> Self {
-        Sa1 { cpu: Cpu::new(), st: State::new() }
+        Sa1 {
+            cpu: Cpu::new(),
+            st: State::new(),
+        }
     }
 
     /// Run the SA-1 CPU for at least `clocks` SA-1 clocks (one per bus cycle); returns the clocks used. A CPU held in
@@ -127,7 +145,10 @@ impl Sa1 {
             }
             if self.st.need_reset {
                 self.st.need_reset = false;
-                self.cpu.reset(&mut Sa1Bus { st: &mut self.st, mem });
+                self.cpu.reset(&mut Sa1Bus {
+                    st: &mut self.st,
+                    mem,
+                });
             }
             if self.st.ccnt & 0x40 != 0 {
                 return clocks;
@@ -138,7 +159,11 @@ impl Sa1 {
                 self.cpu.trigger_nmi();
             }
             self.st.nmi_prev = nmi;
-            used += self.cpu.step(&mut Sa1Bus { st: &mut self.st, mem });
+            used += self.cpu.step(&mut Sa1Bus {
+                st: &mut self.st,
+                mem,
+            });
+            used += std::mem::take(&mut self.st.waits);
         }
         used
     }
@@ -151,9 +176,11 @@ struct Sa1Bus<'a, M: Sa1Mem> {
 
 impl<M: Sa1Mem> Bus for Sa1Bus<'_, M> {
     fn read(&mut self, addr: u32) -> u8 {
+        self.st.wait(addr);
         self.st.read(Side::Sa1, addr, self.mem).unwrap_or(0)
     }
     fn write(&mut self, addr: u32, value: u8) {
+        self.st.wait(addr);
         self.st.write(Side::Sa1, addr, value, self.mem);
     }
 }
@@ -220,13 +247,44 @@ impl State {
             vbit: 0,
             need_reset: false,
             nmi_prev: false,
+            scpu_area: None,
+            waits: 0,
         }
     }
 
     /// The level of the S-CPU's IRQ line from the SA-1 (`SCNT` bit 7 and `SIE` bit 7, the character-conversion DMA
     /// interrupt with `SIE` bit 5).
     pub fn irq_to_scpu(&self) -> bool {
-        (self.sfr & 0x80 != 0 && self.sie & 0x80 != 0) || (self.dma_irq_scpu && self.sie & 0x20 != 0)
+        (self.sfr & 0x80 != 0 && self.sie & 0x80 != 0)
+            || (self.dma_irq_scpu && self.sie & 0x20 != 0)
+    }
+
+    /// Which shared memory `addr` is for `side` (`None`: registers, open bus, or not the SA-1's).
+    pub fn area(&self, side: Side, addr: u32) -> Option<Area> {
+        match self.decode(side, addr) {
+            Target::Rom(_) => Some(Area::Rom),
+            Target::Iram(_) => Some(Area::Iram),
+            Target::Bw(_) | Target::Bitmap(_) => Some(Area::Bwram),
+            // a vector the SA-1 substitutes comes from its registers, not the ROM
+            Target::Const(_) | Target::Reg(_) | Target::Open => None,
+        }
+    }
+
+    /// Where the S-CPU's bus is now (its current access), for the SA-1's conflict waits; `None` when it is elsewhere.
+    pub fn set_scpu_area(&mut self, area: Option<Area>) {
+        self.scpu_area = area;
+    }
+
+    /// The wait clocks of one SA-1 access to `addr`, added to the clocks `Sa1::run` reports.
+    fn wait(&mut self, addr: u32) {
+        let area = self.area(Side::Sa1, addr);
+        let busy = area.is_some() && area == self.scpu_area;
+        self.waits += match (area, busy) {
+            (Some(Area::Bwram), false) => 1,
+            (Some(Area::Bwram), true) => 3,
+            (Some(_), true) => 1,
+            _ => 0,
+        };
     }
 
     /// The SA-1 CPU is running (not held in reset, not waiting).
@@ -243,7 +301,8 @@ impl State {
             return;
         }
         let (en_h, en_v) = (self.tmc & 1 != 0, self.tmc & 2 != 0);
-        let hit = (en_h || en_v) && (!en_h || self.h == self.hcnt) && (!en_v || self.v == self.vcnt);
+        let hit =
+            (en_h || en_v) && (!en_h || self.h == self.hcnt) && (!en_v || self.v == self.vcnt);
         if hit && !self.timer_match {
             self.cfr |= 0x40;
         }
@@ -273,7 +332,11 @@ impl State {
             0x80..=0x9F => (self.exb, 2),
             _ => (self.fxb, 3),
         };
-        let chunk = if reg & 0x80 != 0 { reg as u32 & 7 } else { default };
+        let chunk = if reg & 0x80 != 0 {
+            reg as u32 & 7
+        } else {
+            default
+        };
         chunk * 0x10_0000 + (bank & 0x1F) * 0x8000 + (off & 0x7FFF)
     }
 
@@ -368,7 +431,11 @@ impl State {
     }
 
     fn bw_writable(&self, side: Side, off: u32) -> bool {
-        let en = if side == Side::Scpu { self.sbwe } else { self.cbwe };
+        let en = if side == Side::Scpu {
+            self.sbwe
+        } else {
+            self.cbwe
+        };
         en & 0x80 != 0 || off >= 256u32 << (self.bwpa & 0xF)
     }
 
@@ -377,7 +444,11 @@ impl State {
     pub fn write<M: Sa1Mem>(&mut self, side: Side, addr: u32, value: u8, mem: &mut M) -> bool {
         match self.decode(side, addr) {
             Target::Iram(i) => {
-                let prot = if side == Side::Scpu { self.siwp } else { self.ciwp };
+                let prot = if side == Side::Scpu {
+                    self.siwp
+                } else {
+                    self.ciwp
+                };
                 if prot & (1 << (i >> 8)) != 0 {
                     self.iram[i] = value;
                 }
@@ -424,7 +495,9 @@ impl State {
             0x2306..=0x230A => (self.mr >> (8 * (a - 0x2306))) as u8,
             0x230B => (self.overflow as u8) << 7,
             0x230C | 0x230D => {
-                let b = |s: &mut Self, m: &mut M, i: u32| s.read(Side::Sa1, s.va.wrapping_add(i), m).unwrap_or(0) as u32;
+                let b = |s: &mut Self, m: &mut M, i: u32| {
+                    s.read(Side::Sa1, s.va.wrapping_add(i), m).unwrap_or(0) as u32
+                };
                 let data = b(self, mem, 0) | b(self, mem, 1) << 8 | b(self, mem, 2) << 16;
                 let v = (data >> self.vbit) as u16;
                 if a == 0x230C {
@@ -636,7 +709,11 @@ impl State {
     }
 
     fn normal_dma<M: Sa1Mem>(&mut self, mem: &mut M) {
-        let count = if self.dtc == 0 { 0x1_0000 } else { self.dtc as u32 };
+        let count = if self.dtc == 0 {
+            0x1_0000
+        } else {
+            self.dtc as u32
+        };
         for i in 0..count {
             let src = self.sda.wrapping_add(i);
             let b = match self.dcnt & 7 {
@@ -665,7 +742,11 @@ impl State {
             _ => 2,
         };
         let width = 1u32 << ((self.cdma >> 2) & 7).min(5);
-        let count = if self.dtc == 0 { 0x1_0000 } else { self.dtc as u32 };
+        let count = if self.dtc == 0 {
+            0x1_0000
+        } else {
+            self.dtc as u32
+        };
         let tile_bytes = 8 * bpp;
         for i in 0..count {
             let tile = i / tile_bytes;
@@ -701,7 +782,8 @@ impl State {
             for i in 0..8 {
                 byte |= ((self.brf[half * 8 + i] >> p) & 1) << (7 - i);
             }
-            let at = self.dda + tile * 8 * bpp as u32 + (p as u32 >> 1) * 16 + y * 2 + (p as u32 & 1);
+            let at =
+                self.dda + tile * 8 * bpp as u32 + (p as u32 >> 1) * 16 + y * 2 + (p as u32 & 1);
             self.iram[(at & 0x7FF) as usize] = byte;
         }
         self.cc_row += 1;
